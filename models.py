@@ -11,7 +11,7 @@ class StudentProfile:
 
 
 class MojimojiStatus:
-    """MoJiMoJiのレベル、経験値、段階型リニア、個性の計算を管理するクラス"""
+    """MoJiMoJiのレベル、経験値、個性の計算を管理するクラス"""
     def __init__(self):
         self.level = 1
         self.current_exp = 0
@@ -21,13 +21,8 @@ class MojimojiStatus:
         }
 
     def get_next_level_exp(self) -> int:
-        """段階型リニア：次のレベルに必要な経験値を返す"""
-        if self.level <= 5:
-            return 20
-        elif self.level <= 10:
-            return 50
-        else:
-            return 80
+        """【仕様】レベルアップに必要な経験値を『30』に完全固定"""
+        return 30
 
     def add_exp(self, category: str, points: int) -> bool:
         """特定のカテゴリに経験値を加算し、全体プールにも追加する。レベルアップしたらTrueを返す"""
@@ -46,19 +41,14 @@ class MojimojiStatus:
 
 
 class HierarchicalMemoryStore:
-    """【提示コードベース】短期・中期・長期の階層型記憶を管理するクラス"""
+    """短期・中期・長期の階層型記憶および分類ログを管理するクラス"""
     def __init__(self):
-        # 1. 短期記憶 (今日覚えた『いつ・どこで・誰と・何をした』の構造化辞書のリスト)
         self.short_term_memories: List[Dict[str, Any]] = []
-        
-        # 2. 中期ログ (日付変更時に、前日の短期記憶を1日分の日記形式に要約した文章のリスト。最大7件=1週間分)
         self.mid_term_logs: List[str] = []
-        
-        # 3. 長期記憶 (中期ログが溢れた際に、さらに数週間〜数ヶ月分を600文字程度に濃縮した永続要約テキスト)
         self.long_term_summary: str = ""
-        
-        # 4. 最後の活動日 (YYYY-MM-DD形式。日付変更を検出するためのタイムスタンプ)
         self.last_activity_date: str = datetime.datetime.now().strftime("%Y-%m-%d")
+        self.has_written_diary_today: bool = False  
+        self.classification_history: List[Dict[str, Any]] = []
 
     def add_short_memory(self, when: str, where: str, who: str, what: str):
         """今日の構造化記憶を追加（重複チェック付き）"""
