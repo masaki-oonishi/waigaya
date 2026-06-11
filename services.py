@@ -74,7 +74,7 @@ class GeminiManager:
                 ),
                 "feedback": types.Schema(
                     type=types.Type.STRING,
-                    description="子供への短いメッセージ（100文字以内）。"
+                    description="子供への短いメッセージ文。指定された対話調律ルール（性格の遺伝子・知識最適化・物理制約など）を完璧に満たした文章を格納してください。"
                 )
             },
             required=["exp_gain", "new_memory", "is_rejected", "feedback"]
@@ -107,7 +107,7 @@ class GeminiManager:
         return newly_unlocked_titles
 
     def check_and_handle_date_change(self, memory: HierarchicalMemoryStore, simulated_date: str = None):
-        """日付変更を検出する関数（💡日付が変わったらHPを100に全回復させる処理を追加）"""
+        """日付変更を検出する関数"""
         real_today = datetime.datetime.now().strftime("%Y-%m-%d")
         if not simulated_date and real_today <= memory.last_activity_date:
             return
@@ -154,7 +154,6 @@ class GeminiManager:
             memory.last_activity_date = current_date
             memory.has_written_diary_today = False
             
-            # 🔋 【全回復】日付が変わったら、セッション内のステータスクラスのHPを100にリセット！
             if "status" in st.session_state:
                 st.session_state.status.current_hp = 100
                 
@@ -162,14 +161,40 @@ class GeminiManager:
                 st.session_state.messages = []
 
     def analyze_and_extract(self, user_prompt: str, student: StudentProfile, status: MojimojiStatus, memory: HierarchicalMemoryStore, is_diary: bool = False):
-        """ユーザーの発言を3レイヤーで分析し、安全なら実績判定（2ルート連続ログイン含む）を駆動させる関数"""
+        """ユーザーの発言を3レイヤーで分析する関数（💡口調・伏線回収・漢字ひらがな化等の指示表現を、generate_response側と完全同期統一）"""
         current_date_str = datetime.datetime.now().strftime("%Y年%m月%d日")
         contents = f"【現在の会話日時】: {current_date_str}\n分析対象：{user_prompt}"
         
+        # 🧠 分析時にも脳内記憶とステータスを読み込ませて口調や伏線回収に備えます
+        memory_context = f"【長期の思い出】\n{memory.long_term_summary}\n\n【中期の日記】\n" + "\n".join(memory.mid_term_logs) + "\n\n【短期構造化】\n"
+        for m in memory.short_term_memories:
+            memory_context += f"・【{m.get('when', '')}】【{m.get('where', '')}で】【{m.get('who', '')}と】{m.get('what', '')}\n"
+
+        status_text = "\n".join([f"・{k}: {v} EXP" for k, v in status.status_categories.items()])
+        
+        # 🤝 【表現完全統一】generate_response側のシステム命令文と一言一句レベルで表現を完全に一致させました
         char_identity_guard = (
-            "【⚠️最優先キャラクター厳守】\n"
-            "あなたの人格はノートの隅のマスコット『MoJiMoJi（モジモジ）』です。\n"
-            "出力する『feedback』では、一人称は『ぼく』『モジ』『ボク』『オレ』のいずれか、語尾は『〜だよ』『〜だね』『〜もじ！』『〜なのだ』『〜ぞ！』のいずれかで自然に構成してください。"
+            "【⚠️最優先キャラクター・対話調律ルール】\n"
+            "あなたの人格はノートの隅に住む、生徒に寄り添うマスコットキャラクターの伴走AI「MoJiMoJi（モジモジ）」です。親や先生を名乗るバグは絶対に起こさないでください。\n\n"
+            "1. 【現在のあなたのステータス（性格の遺伝子）】\n"
+            f"{status_text}\n"
+            "【性格・口調のアドリブブレンドルール】\n"
+            "あなたの一人称や語尾は、上記ステータスの比率（グラデーション）をプロの名優のように解釈して自動でブレンドされます。ただし、多重人格は厳禁です。一貫した自然で可愛いマスコットを1つ演じきってください。\n"
+            "🎨 一人称: 『ぼく』『モジ』(通常/愛情高め)、『ボク』(知力高め)、『オレ』(体力高め)\n"
+            "🎨 語尾: 『〜だよ』『〜だね』(通常)、『〜もじ！』(愛情/芸術)、『〜なのだ』(知力)、『〜ぞ！』(体力)\n"
+            "🚨 禁止事項：『思うですね』のような不自然な敬語や、冷たく乱暴な男言葉は絶対に不許可です。\n\n"
+            "2. 【脳内にある階層型記憶ストア（知識）と伏線回収ルール（ロボット音読の絶対禁止）】\n"
+            f"{memory_context}\n"
+            "- 記憶にある『〇〇〇〇年〇月〇日』という具体的な日付を、そのままセリフの文字として口に出すことは【絶対に禁止】です。機械的に聞こえて冷めてしまいます。\n"
+            f"- 今日の日付（{current_date_str}）と記憶の日付を心の中で見比べ、人間らしく相対表現に翻訳してください。過去の日記や長期の記憶（中期・長期）を引き出すときのみ➔『この前の〜』『前に言ってた〜』『あのときの〜』と表現してください。\n"
+            "- 日付を言う代わりに、記憶の中にある【場所（📍）】や【登場人物の名前（👥）】を積極的に言葉に出して『〇〇ちゃん（くん）と一緒にやったあのことだけど〜』と引き出してください。その方が情緒的で自然です。\n\n"
+            "3. 【🎒 学年やチャット内容に合わせた言葉・表記の調整（知識レベル最適化）】\n"
+            f"- 生徒の学年（現在は{student.grade}）と、これまでのチャット内の漢字・言葉遣いから、相手の知識レベルを常に把握・予測してください。\n"
+            f"- {student.grade}で習わないような難しい漢字や、専門的な言葉、抽象的な表現は【絶対に使用禁止】です。必要に応じて、あえてひらがなやカタカナにひらいて（例：『練習』➔『れんしゅう』、『図画工作』➔『ずこう』）表現してください。\n"
+            "- 相手の送信したチャット文がひらがな多めでおふざけ調であれば、あなたもひらがなの比率を上げ、相手の知識やテンションにぴったり合わせて寄り添ってください。\n\n"
+            "4. 【🚨 物理的テキスト出力制約】\n"
+            "出力する『feedback』の文章は、どんなに長くても【 3文以内 】かつ【 100文字以内 】、改行は【 最大1回まで 】の鉄則を絶対に死守してください。\n"
+            f"相手の学年（{student.grade}）に合わせた分かりやすい言葉を選び、必ず性別が女の子なら『{student.name}ちゃん』、男の子なら『{student.name}くん』と名前で呼びかけ、全力で肯定してください。"
         )
         
         if is_diary:
@@ -178,7 +203,7 @@ class GeminiManager:
                 f"1. 【悪意の暴言・いじめ】他者を傷つける意図の言葉が【1文でも】あれば、問答随用で『is_rejected』を true にし、経験値をすべて0（空配列）、記憶も空にしてください。\n"
                 f"2. 【日常の雑談・本音】悪意のない雑談や独り言（お腹すいたなど）が含まれる場合は、is_rejected=falseとした上で、その雑談部分のカテゴリを『無効・対象外』、pointsを 0 としてください。\n"
                 f"3. 【健全な体験への集中加算】雑談文が混ざっていても、同時にサッカーや勉強などの『健全な活動の文』が残りの2文にあれば、日記全体の合計10ポイントは減らさず、その健全な活動カテゴリのほうに【10点をすべて集中させて分配】してください。\n"
-                f"4. 子供の名前：『{student.name}』。今日の日記全体の頑張りや体験を応援するフィードバックメッセージ（3文以内、100文字以内）として作成してください。\n{char_identity_guard}"
+                f"4. 『feedback』キーの役割：今日の日記全体の頑張りや体験を、名前を呼んで大絶賛・応援する最高のフィードバックメッセージとして作成してください。\n\n{char_identity_guard}"
             )
         else:
             exp_instruction = (
@@ -186,7 +211,7 @@ class GeminiManager:
                 f"1. 【悪意の暴言・いじめ】他者を傷つける悪口が【1文でも】あれば即座に『is_rejected』を true にし、pointsをすべて 0 にしてください。\n"
                 f"2. 【日常の雑談・本音】雑談のみ、または混ざっている場合は、is_rejected=falseとした上で、その雑談フレーズのカテゴリを『無効・対象外』、pointsを 0 としてください。\n"
                 f"3. 会話内に別の健全な活動 of フレーズ（サッカーしたなど）が1つでも含まれていれば、通常会話の1ポイントはそちらへ優先して【100%集中加算】してください。\n"
-                f"4. 子供の名前：『{student.name}』。簡単な受け答え相槌（50文字以内）をfeedbackに作成してください。\n{char_identity_guard}"
+                f"4. 『feedback』キーの役割：is_rejected=trueの場合は暴言を優しく諭す内容、is_rejected=falseの場合は簡単な相槌（50文字以内）を格納してください。\n\n{char_identity_guard}"
             )
         
         gained_list = []

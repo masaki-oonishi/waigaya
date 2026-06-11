@@ -16,8 +16,8 @@ class MojimojiStatus:
         self.level = 1
         self.current_exp = 0
         # 🔋 【新設】1日最大100HPの体力カウンター
-        self.max_hp = 100
-        self.current_hp = 100
+        self.max_hp = 20
+        self.current_hp = 20
         
         self.status_categories = {
             "知力・論理": 0, "体力・健康": 0, "芸術・教養": 0, "社会性・徳育": 0,
