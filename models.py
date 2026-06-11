@@ -21,16 +21,15 @@ class MojimojiStatus:
         }
 
     def get_next_level_exp(self) -> int:
-        """【仕様】レベルアップに必要な経験値を『30』に完全固定"""
+        """レベルアップに必要な経験値を『30』に固定"""
         return 30
 
     def add_exp(self, category: str, points: int) -> bool:
-        """特定のカテゴリに経験値を加算し、全体プールにも追加する。レベルアップしたらTrueを返す"""
+        """特定のカテゴリに経験値を加算し、全体プールにも追加。レベルアップしたらTrueを返す"""
         if category in self.status_categories:
             self.status_categories[category] += points
             self.current_exp += points
             
-            # レベルアップチェック
             leveled_up = False
             while self.current_exp >= self.get_next_level_exp():
                 self.current_exp -= self.get_next_level_exp()
@@ -41,7 +40,7 @@ class MojimojiStatus:
 
 
 class HierarchicalMemoryStore:
-    """短期・中期・長期の階層型記憶および分類ログを管理するクラス"""
+    """短期・中期・長期の階層型記憶、および連続ログインや実績進行を管理するクラス"""
     def __init__(self):
         self.short_term_memories: List[Dict[str, Any]] = []
         self.mid_term_logs: List[str] = []
@@ -49,6 +48,18 @@ class HierarchicalMemoryStore:
         self.last_activity_date: str = datetime.datetime.now().strftime("%Y-%m-%d")
         self.has_written_diary_today: bool = False  
         self.classification_history: List[Dict[str, Any]] = []
+        
+        # 📅 【新設】連続ログイン用トラッキングカウンター
+        self.last_diary_date: str = ""       # 最後に日記を提出した日付(YYYY-MM-DD)
+        self.continuous_diary_count: int = 0  # 連続提出日数
+
+        # 🏅 【新設】ユーザーの実績進行ストア（IDと数値だけの超軽量データ構造）
+        self.user_achievements: Dict[str, Dict[str, Any]] = {
+            "ach_chat_10": {"current_value": 0, "is_unlocked": False, "unlocked_at": None},
+            "ach_diary_5": {"current_value": 0, "is_unlocked": False, "unlocked_at": None},
+            "ach_login_3days": {"current_value": 0, "is_unlocked": False, "unlocked_at": None},
+            "ach_secret_curry": {"current_value": 0, "is_unlocked": False, "unlocked_at": None}
+        }
 
     def add_short_memory(self, when: str, where: str, who: str, what: str):
         """今日の構造化記憶を追加（重複チェック付き）"""
