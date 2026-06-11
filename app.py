@@ -164,6 +164,9 @@ def main():
         st.write(f"Next: {status.current_exp} / {next_exp} EXP")
         st.progress(min(status.current_exp / next_exp, 1.0))
         
+        st.write(f"🔋 体力 (HP): {status.current_hp} / {status.max_hp}")
+        st.progress(min(status.current_hp / status.max_hp, 1.0))
+        
         st.markdown("---")
         st.subheader("🎛️ デモ用シミュレーター")
         st.caption(f"活動基準日: `{memory.last_activity_date}`")
@@ -183,6 +186,10 @@ def main():
                 status.level = 10
                 st.session_state.show_lvup_effect = True 
                 st.rerun()
+                
+        if st.button("🔋 デバッグ：今すぐHPを0にする", use_container_width=True):
+            status.current_hp = 0
+            st.rerun()
 
         st.markdown("---")
         st.subheader("📊 カテゴリ別内訳")
@@ -243,17 +250,42 @@ def main():
         col_r_bar1, col_r_bar2, col_r_bar3 = st.columns([2, 6, 2])
         with col_r_bar2:
             st.progress(min(status.current_exp / next_exp, 1.0))
-            st.markdown(f"<div style='text-align: center; font-size: 11px; color: #666; margin-top: 5px;'>EXP: {status.current_exp} / {next_exp}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='text-align: center; font-size: 11px; color: #666; margin-top: 2px; margin-bottom: 8px;'>EXP: {status.current_exp} / {next_exp}</div>", unsafe_allow_html=True)
+            
+            st.progress(min(status.current_hp / status.max_hp, 1.0))
+            st.markdown(f"<div style='text-align: center; font-size: 11px; color: #FF4B4B; font-weight: bold; margin-top: 2px; margin-bottom: 15px;'>HP: {status.current_hp} / {status.max_hp}</div>", unsafe_allow_html=True)
+            
+            medal_shelf_html = "<div style='background-color: #FAFAFA; border: 2px dashed #E0E0E0; border-radius: 12px; padding: 10px 14px; display: flex; justify-content: center; align-items: center; gap: 12px; min-height: 65px; margin-bottom: 5px;'>"
+            has_any_medal = False
+            
+            for ach_id, master in ACHIEVEMENT_MASTER.items():
+                user_data = memory.user_achievements.get(ach_id, {"is_unlocked": False})
+                if user_data.get("is_unlocked"):
+                    has_any_medal = True
+                    img_path = f"resource/{master['medal_color']}.png"
+                    img_base64 = get_image_as_base64(img_path)
+                    if img_base64:
+                        medal_shelf_html += f'<img src="data:image/png;base64,{img_base64}" style="width: 44px; height: 44px; object-fit: contain;" title="【獲得】{master["title"]}">'
+            
+            if not has_any_medal:
+                medal_shelf_html += "<span style='font-size: 11px; color: #B0B0B0;'>🏅 獲得したメダルがここに飾られるもじ！</span>"
+                
+            medal_shelf_html += "</div>"
+            st.markdown(medal_shelf_html, unsafe_allow_html=True)
             
         st.markdown("<div style='margin-bottom: 25px;'></div>", unsafe_allow_html=True)
         st.markdown("<h3 style='text-align: center;'>今日なにする？</h3>", unsafe_allow_html=True)
         
         c_btn1, c_btn2, c_btn3 = st.columns(3)
         with c_btn1:
-            if st.button("📖 日記ルートへ", use_container_width=True, type="primary"):
+            is_diary_disabled = memory.has_written_diary_today
+            diary_label = "📖 日記ルートへ" if not is_diary_disabled else "✅ 今日は提出済み"
+            if st.button(diary_label, use_container_width=True, type="primary", disabled=is_diary_disabled):
                 st.session_state.screen = "diary"; st.rerun()
         with c_btn2:
-            if st.button("💬 会話ルートへ", use_container_width=True, type="primary"):
+            is_chat_disabled = (status.current_hp <= 0)
+            button_label = "💬 会話ルートへ" if not is_chat_disabled else "💤 つかれちゃったもじ"
+            if st.button(button_label, use_container_width=True, type="primary", disabled=is_chat_disabled):
                 st.session_state.screen = "chat"; st.rerun()
         with c_btn3:
             if st.button("🏅 隠れ実績図鑑をみる", use_container_width=True, type="primary"):
@@ -269,8 +301,12 @@ def main():
             render_mojimoji_with_overlay(current_lottie, active_effect, height=180, key=f"diary_top_{status.level}_{bool(active_effect)}")
             st.markdown(f"<h4 style='text-align: center; margin-top: 5px; margin-bottom: 5px;'>🐾 Lv.{status.level}</h4>", unsafe_allow_html=True)
             next_exp = status.get_next_level_exp()
+            
             st.progress(min(status.current_exp / next_exp, 1.0))
-            st.markdown(f"<div style='text-align: center; font-size: 11px; color: #666;'>EXP: {status.current_exp} / {next_exp}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='text-align: center; font-size: 11px; color: #666; margin-top: 2px; margin-bottom: 8px;'>EXP: {status.current_exp} / {next_exp}</div>", unsafe_allow_html=True)
+            
+            st.progress(min(status.current_hp / status.max_hp, 1.0))
+            st.markdown(f"<div style='text-align: center; font-size: 11px; color: #FF4B4B; font-weight: bold; margin-top: 2px;'>HP: {status.current_hp} / {status.max_hp}</div>", unsafe_allow_html=True)
             
         st.markdown("<hr style='margin-top: 15px; margin-bottom: 15px;'>", unsafe_allow_html=True)
 
@@ -287,7 +323,6 @@ def main():
                 if diary_input.strip():
                     old_mem_count = len(memory.short_term_memories)
                     
-                    # 💡 【今回の大改善】日記のデータ分析中も、会話と同じくスピナーのぐるぐるを発生させます！
                     with st.spinner("MoJiMoJiが日記を読んでいるもじ..."):
                         gained, lvup, is_rejected, fb, toasts = ai_manager.analyze_and_extract(diary_input, student, status, memory, is_diary=True)
                     
@@ -319,8 +354,12 @@ def main():
             render_mojimoji_with_overlay(current_lottie, active_effect, height=180, key=f"diary_anim_top_{status.level}_{bool(active_effect)}")
             st.markdown(f"<h4 style='text-align: center; margin-top: 5px; margin-bottom: 5px;'>🐾 Lv.{status.level}</h4>", unsafe_allow_html=True)
             next_exp = status.get_next_level_exp()
+            
             st.progress(min(status.current_exp / next_exp, 1.0))
-            st.markdown(f"<div style='text-align: center; font-size: 11px; color: #666;'>EXP: {status.current_exp} / {next_exp}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='text-align: center; font-size: 11px; color: #666; margin-top: 2px; margin-bottom: 8px;'>EXP: {status.current_exp} / {next_exp}</div>", unsafe_allow_html=True)
+            
+            st.progress(min(status.current_hp / status.max_hp, 1.0))
+            st.markdown(f"<div style='text-align: center; font-size: 11px; color: #FF4B4B; font-weight: bold; margin-top: 2px;'>HP: {status.current_hp} / {status.max_hp}</div>", unsafe_allow_html=True)
             
         st.markdown("<hr style='margin-top: 15px; margin-bottom: 15px;'>", unsafe_allow_html=True)
 
@@ -353,8 +392,12 @@ def main():
             render_mojimoji_with_overlay(current_lottie, active_effect, height=180, key=f"chat_top_{status.level}_{bool(active_effect)}")
             st.markdown(f"<h4 style='text-align: center; margin-top: 5px; margin-bottom: 5px;'>🐾 Lv.{status.level}</h4>", unsafe_allow_html=True)
             next_exp = status.get_next_level_exp()
+            
             st.progress(min(status.current_exp / next_exp, 1.0))
-            st.markdown(f"<div style='text-align: center; font-size: 11px; color: #666;'>EXP: {status.current_exp} / {next_exp}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='text-align: center; font-size: 11px; color: #666; margin-top: 2px; margin-bottom: 8px;'>EXP: {status.current_exp} / {next_exp}</div>", unsafe_allow_html=True)
+            
+            st.progress(min(status.current_hp / status.max_hp, 1.0))
+            st.markdown(f"<div style='text-align: center; font-size: 11px; color: #FF4B4B; font-weight: bold; margin-top: 2px;'>HP: {status.current_hp} / {status.max_hp}</div>", unsafe_allow_html=True)
             
         st.markdown("<hr style='margin-top: 15px; margin-bottom: 15px;'>", unsafe_allow_html=True)
 
@@ -363,31 +406,36 @@ def main():
             for message in st.session_state.messages:
                 render_line_message(message["role"], message["content"], student.name, status.level)
 
-        if prompt := st.chat_input("ここにメッセージを入力..."):
-            st.session_state.messages.append({"role": "user", "content": prompt})
-            
-            with chat_container:
-                render_line_message("user", prompt, student.name, status.level)
+        if status.current_hp <= 0:
+            st.warning("💤 モジは つかれて 眠ってしまったもじ。また明日、たくさんおはなししようね！")
+            if st.button("🏠 お部屋に戻っておやすみさせてあげる", use_container_width=True, type="primary"):
+                st.session_state.screen = "room"; st.rerun()
+        else:
+            if prompt := st.chat_input("ここにメッセージを入力..."):
+                st.session_state.messages.append({"role": "user", "content": prompt})
                 
-            old_mem_count = len(memory.short_term_memories)
-            
-            with st.spinner("MoJiMoJiが考えています..."):
-                gained, lvup, is_rejected, fb, toasts = ai_manager.analyze_and_extract(prompt, student, status, memory, is_diary=False)
-                if lvup: st.session_state.show_lvup_effect = True 
-                if toasts: st.session_state.toast_queue += toasts 
+                with chat_container:
+                    render_line_message("user", prompt, student.name, status.level)
+                    
+                    with st.spinner("MoJiMoJiが考えています..."):
+                        gained, lvup, is_rejected, fb, toasts = ai_manager.analyze_and_extract(prompt, student, status, memory, is_diary=False)
+                        if lvup: st.session_state.show_lvup_effect = True 
+                        if toasts: st.session_state.toast_queue += toasts 
+                        
+                        if is_rejected:
+                            response_text = fb
+                        else:
+                            response_text = ai_manager.generate_response(st.session_state.messages, student, status, memory)
+                            status.current_hp = max(0, status.current_hp - 10)
                 
-                if is_rejected:
-                    response_text = fb
-                else:
-                    response_text = ai_manager.generate_response(st.session_state.messages, student, status, memory)
-            
-            new_mem = memory.short_term_memories[-1]["what"] if len(memory.short_term_memories) > old_mem_count else "なし"
-            memory.classification_history.append({
-                "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "type": "💬 会話", "text": prompt,
-                "gained": gained, "extracted_memory": new_mem if not is_rejected else "（保存なし）", "is_rejected": is_rejected
-            })
-            st.session_state.messages.append({"role": "assistant", "content": response_text})
-            st.rerun()
+                old_mem_count = len(memory.short_term_memories)
+                new_mem = memory.short_term_memories[-1]["what"] if len(memory.short_term_memories) > old_mem_count else "なし"
+                memory.classification_history.append({
+                    "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "type": "💬 会話", "text": prompt,
+                    "gained": gained, "extracted_memory": new_mem if not is_rejected else "（保存なし）", "is_rejected": is_rejected
+                })
+                st.session_state.messages.append({"role": "assistant", "content": response_text})
+                st.rerun()
 
     # 📊 【案内画面】
     elif st.session_state.screen == "dashboard":
@@ -418,7 +466,8 @@ def main():
             
             if is_unlocked:
                 img_style = "width: 65px; height: 65px; object-fit: contain;"
-                title_html = f"<span style='font-size:16px; font-weight:bold; color:#D4AF37;'>🏆 {master['title']}</span>"
+                # 💡【大改善箇所】達成された実績タイトル前のマークを 🏆 ➔ 🔓（開いた鍵）に変更！
+                title_html = f"<span style='font-size:16px; font-weight:bold; color:#D4AF37;'>🔓 {master['title']}</span>"
                 detail_html = f"<span style='font-size:13px; color:#333;'>条件: {master['condition']}</span>"
                 status_html = f"<span style='font-size:11px; color:#228B22; font-weight:bold;'>✨達成日: {user_data['unlocked_at']}</span>"
             else:

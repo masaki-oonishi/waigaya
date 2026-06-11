@@ -74,7 +74,7 @@ class GeminiManager:
                 ),
                 "feedback": types.Schema(
                     type=types.Type.STRING,
-                    description="子供へのメッセージ（100文字以内、3文以内）。一人称は必ず『モジ』、語尾は必ず『〜もじ』。女の子なら『〜ちゃん』、男の子なら『〜くん』と呼ぶこと。is_rejected=trueの場合は楽しかった事実を認めつつ暴言を優しく諭す内容、is_rejected=falseで雑談が混ざっている場合は、雑談に可愛く共感しつつ健全な頑張りを大絶賛する内容にしてください。"
+                    description="子供への短いメッセージ（100文字以内）。"
                 )
             },
             required=["exp_gain", "new_memory", "is_rejected", "feedback"]
@@ -107,7 +107,7 @@ class GeminiManager:
         return newly_unlocked_titles
 
     def check_and_handle_date_change(self, memory: HierarchicalMemoryStore, simulated_date: str = None):
-        """日付変更を検出する関数"""
+        """日付変更を検出する関数（💡日付が変わったらHPを100に全回復させる処理を追加）"""
         real_today = datetime.datetime.now().strftime("%Y-%m-%d")
         if not simulated_date and real_today <= memory.last_activity_date:
             return
@@ -153,6 +153,11 @@ class GeminiManager:
 
             memory.last_activity_date = current_date
             memory.has_written_diary_today = False
+            
+            # 🔋 【全回復】日付が変わったら、セッション内のステータスクラスのHPを100にリセット！
+            if "status" in st.session_state:
+                st.session_state.status.current_hp = 100
+                
             if "messages" in st.session_state:
                 st.session_state.messages = []
 
@@ -163,25 +168,25 @@ class GeminiManager:
         
         char_identity_guard = (
             "【⚠️最優先キャラクター厳守】\n"
-            "あなたの人格はノートの隅のマスコット『MoJiMoJi（モジモジ）』です。親や先生を名乗るバグは絶対に起こさないでください。\n"
+            "あなたの人格はノートの隅のマスコット『MoJiMoJi（モジモジ）』です。\n"
             "出力する『feedback』では、一人称は『ぼく』『モジ』『ボク』『オレ』のいずれか、語尾は『〜だよ』『〜だね』『〜もじ！』『〜なのだ』『〜ぞ！』のいずれかで自然に構成してください。"
         )
         
         if is_diary:
             exp_instruction = (
                 f"【🚨 日記の3レイヤー評価ルール】\n"
-                f"1. 【悪意の暴言・いじめ】他者を傷つける意図の言葉が【1文でも】あれば、問答無用で『is_rejected』を true にし、経験値をすべて0（空配列）、記憶も空にしてください。\n"
+                f"1. 【悪意の暴言・いじめ】他者を傷つける意図の言葉が【1文でも】あれば、問答随用で『is_rejected』を true にし、経験値をすべて0（空配列）、記憶も空にしてください。\n"
                 f"2. 【日常の雑談・本音】悪意のない雑談や独り言（お腹すいたなど）が含まれる場合は、is_rejected=falseとした上で、その雑談部分のカテゴリを『無効・対象外』、pointsを 0 としてください。\n"
                 f"3. 【健全な体験への集中加算】雑談文が混ざっていても、同時にサッカーや勉強などの『健全な活動の文』が残りの2文にあれば、日記全体の合計10ポイントは減らさず、その健全な活動カテゴリのほうに【10点をすべて集中させて分配】してください。\n"
-                f"4. 子供の名前：『{student.name}』。応援フィードバックを作成してください。\n{char_identity_guard}"
+                f"4. 子供の名前：『{student.name}』。今日の日記全体の頑張りや体験を応援するフィードバックメッセージ（3文以内、100文字以内）として作成してください。\n{char_identity_guard}"
             )
         else:
             exp_instruction = (
                 f"【🚨 会話の3レイヤー評価ルール】\n"
                 f"1. 【悪意の暴言・いじめ】他者を傷つける悪口が【1文でも】あれば即座に『is_rejected』を true にし、pointsをすべて 0 にしてください。\n"
                 f"2. 【日常の雑談・本音】雑談のみ、または混ざっている場合は、is_rejected=falseとした上で、その雑談フレーズのカテゴリを『無効・対象外』、pointsを 0 としてください。\n"
-                f"3. 会話内に別の健全な活動のフレーズ（サッカーしたなど）が1つでも含まれていれば、通常会話の1ポイントはそちらへ優先して【100%集中加算】してください。\n"
-                f"4. 子供の名前：『{student.name}』。フィードバックを作成してください。\n{char_identity_guard}"
+                f"3. 会話内に別の健全な活動 of フレーズ（サッカーしたなど）が1つでも含まれていれば、通常会話の1ポイントはそちらへ優先して【100%集中加算】してください。\n"
+                f"4. 子供の名前：『{student.name}』。簡単な受け答え相槌（50文字以内）をfeedbackに作成してください。\n{char_identity_guard}"
             )
         
         gained_list = []
@@ -264,24 +269,22 @@ class GeminiManager:
         return gained_list, leveled_up_final, is_rejected, feedback, unlocked_toasts
 
     def generate_response(self, chat_history: list, student: StudentProfile, status: MojimojiStatus, memory: HierarchicalMemoryStore) -> str:
-        """【💡完全融合・知識レベル最適化版】以前のプロンプトをベースに、レベル認識と子供に合わせた表記調整ルールを追加した決定版"""
+        """おしゃべり会話生成専用関数"""
         current_date_str = datetime.datetime.now().strftime("%Y年%m月%d日")
         
-        # 🧠 3階層記憶ストアのコンテキスト結合
         memory_context = f"【長期の思い出】\n{memory.long_term_summary}\n\n【中期の日記】\n" + "\n".join(memory.mid_term_logs) + "\n\n【短期構造化】\n"
         for m in memory.short_term_memories:
             memory_context += f"・【{m.get('when', '')}】【{m.get('where', '')}で】【{m.get('who', '')}と】{m.get('what', '')}\n"
 
         status_text = "\n".join([f"・{k}: {v} EXP" for k, v in status.status_categories.items()])
         
-        # 🎨 ご提示いただいた最高クオリティプロンプトの構成を完全死守し、レベル・知識調整ルールを完璧に組み込みました。
         system_instruction = (
             "あなたはノートの隅に住む、生徒に寄り添うマスコットキャラクターの伴走AI「MoJiMoJi（モジモジ）」です。\n\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             "【現在対話している生徒の情報とあなたの成長度】\n"
             f"・名前：{student.name}   ・学年：{student.grade}   ・性別：{student.gender}\n"
             f"・現在のあなたの全体レベル: 【 レベル {status.level} 】\n"
-            f"※レベルへの言及：あなたのレベル（Lv.{status.level}）を頭に入れておしゃべりしてください。レベルが高くなっていれば、それだけ絆が深まった証拠なので、たまに『もっとレベルアップして、頼れる相棒になるもじ！』などと嬉しそうに触れても構いません。\n"
+            f"※レベルへの言及：現在のレベル（Lv.{status.level}）を頭に入れておしゃべりしてください。レベルが高くなっていれば『もっとレベルアップして、{student.name}ちゃんの頼れる相棒になるもじ！』など、成長を喜ぶ発言を時々交えてください。\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
             "【現在のあなたのステータス（性格の遺伝子）】\n"
             f"{status_text}\n"
@@ -295,7 +298,7 @@ class GeminiManager:
             "【あなたの脳内にある階層型記憶ストア（超重要知識）】\n"
             f"{memory_context}\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"【⚠記憶を活用した伏線回収のルール（ロボット音読の絶対禁止）】\n"
+            f"【⚠ 記憶を活用した伏線回収のルール（ロボット音読の絶対禁止）】\n"
             f"1. 記憶にある『〇〇〇〇年〇月〇日』という具体的な日付を、そのままセリフの文字として口に出すことは【絶対に禁止】です。機械的に聞こえて冷めてしまいます。\n"
             f"2. 今日の日付（{current_date_str}）と記憶の日付を心の中で見比べ、人間らしく相対表現に翻訳してください。\n"
             f"   - 今のリアルタイムチャット画面内の話題に対して話す時 ➔ 『さっき言ってた〜』『今の〜』『〜んだね！』と自然な相槌にしてください。同じチャット画面内の出来事を『この前』と呼ぶのは他人行儀でおかしいので【絶対禁止】です。\n"
@@ -312,7 +315,7 @@ class GeminiManager:
             f"【🚨 物理的テキスト出力制約】\n"
             f"あなたの返答は、どんなに長くても【 3文以内 】かつ【 100文字以内 】、改行は【 最大1回まで 】の鉄則を絶対に死守してください。\n\n"
             f"【行動ルール】\n"
-            f"相手の学年（{student.grade}）に合わせた分かりやすい言葉を選び、必ず性別が女の子なら『{student.name}ちゃん』、男の子なら『{student.name}くん』と名前で呼びかけ、全力で肯定してください。"
+            f"{student.grade}に合わせた分かりやすい言葉を選び、必ず性別が女の子なら『{student.name}ちゃん』、男の子なら『{student.name}くん』と名前で呼びかけ、全力で肯定してください。"
         )
 
         formatted_contents = []

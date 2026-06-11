@@ -11,10 +11,14 @@ class StudentProfile:
 
 
 class MojimojiStatus:
-    """MoJiMoJiのレベル、経験値、個性の計算を管理するクラス"""
+    """MoJiMoJiのレベル、経験値、個性、および体力を管理するクラス"""
     def __init__(self):
         self.level = 1
         self.current_exp = 0
+        # 🔋 【新設】1日最大100HPの体力カウンター
+        self.max_hp = 100
+        self.current_hp = 100
+        
         self.status_categories = {
             "知力・論理": 0, "体力・健康": 0, "芸術・教養": 0, "社会性・徳育": 0,
             "表現・積極性": 0, "自律・継続": 0, "愛情・親密度": 0
@@ -49,11 +53,9 @@ class HierarchicalMemoryStore:
         self.has_written_diary_today: bool = False  
         self.classification_history: List[Dict[str, Any]] = []
         
-        # 📅 【新設】連続ログイン用トラッキングカウンター
-        self.last_diary_date: str = ""       # 最後に日記を提出した日付(YYYY-MM-DD)
-        self.continuous_diary_count: int = 0  # 連続提出日数
+        self.last_diary_date: str = ""       
+        self.continuous_diary_count: int = 0  
 
-        # 🏅 【新設】ユーザーの実績進行ストア（IDと数値だけの超軽量データ構造）
         self.user_achievements: Dict[str, Dict[str, Any]] = {
             "ach_chat_10": {"current_value": 0, "is_unlocked": False, "unlocked_at": None},
             "ach_diary_5": {"current_value": 0, "is_unlocked": False, "unlocked_at": None},
