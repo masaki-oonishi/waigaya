@@ -11,7 +11,7 @@ load_dotenv()
 
 
 class GeminiManager:
-    """Gemini APIとの通信、構造化分析、および安全フィルター（全無効・情緒フォロー）を統括するクラス"""
+    """Gemini APIとの通信、構造化分析、および安全フィルター（一括無効・雑談受け流し）を統括するクラス"""
     def __init__(self):
         self.client = genai.Client()
         
@@ -20,13 +20,13 @@ class GeminiManager:
             properties={
                 "exp_gain": types.Schema(
                     type=types.Type.ARRAY,
-                    description="獲得した経験値のリスト。is_rejectedがtrueの場合は、配列を空にするかすべてのpointsを0にしてください。",
+                    description="獲得した経験値のリスト。日常の雑談や独り言に該当するフレーズは、カテゴリを '無効・対象外'、pointsを 0 としてください。",
                     items=types.Schema(
                         type=types.Type.OBJECT,
                         properties={
                             "category": types.Schema(
                                 type=types.Type.STRING,
-                                description="経験値を割り振るカテゴリ。'知力・論理', '体力・健康', '芸術・教養', '社会性・徳育', '表現・積極性', '自律・継続', '愛情・親密度'、および発言が無効な場合は '無効・対象外' のいずれか。"
+                                description="経験値を割り振るカテゴリ。'知力・論理', '体力・健康', '芸術・教養', '社会性・徳育', '表現・積極性', '自律・継続', '愛情・親密度'、および雑談・独り言の場合は '無効・対象外' のいずれか。"
                             ),
                             "points": types.Schema(type=types.Type.INTEGER),
                             "reason": types.Schema(
@@ -43,19 +43,18 @@ class GeminiManager:
                         "when": types.Schema(type=types.Type.STRING),
                         "where": types.Schema(type=types.Type.STRING),
                         "who": types.Schema(type=types.Type.STRING),
-                        "what": types.Schema(type=types.Type.STRING, description="出来事（20文字以内）。is_rejectedがtrueの場合は空文字にしてください。"),
+                        "what": types.Schema(type=types.Type.STRING, description="健全な出来事（20文字以内）。日常の雑談フレーズやis_rejected=trueの場合は空文字にしてください。"),
                         "is_important": types.Schema(type=types.Type.BOOLEAN)
                     },
                     required=["when", "where", "who", "what", "is_important"]
                 ),
                 "is_rejected": types.Schema(
                     type=types.Type.BOOLEAN,
-                    description="入力内容（日記や発言）の中に、他者を傷つけるいじめ表現、暴言、悪口、仲間外れにするような不適切な内容が【1文でも】含まれている場合は true、健全な内容であれば false。"
+                    description="入力内容の中に、他者を傷つけるいじめ、暴言、悪口が【1文でも】含まれている場合は true。単なる雑談やおふざけ程度であれば悪意はないため false。"
                 ),
-                # 💡 【キャラクター調律】一人称・語尾の縛りを極限まで強固にし、別人格のハルシネーションを完全禁止
                 "feedback": types.Schema(
                     type=types.Type.STRING,
-                    description="子供へのダイレクトメッセージ（100文字以内、3文以内、改行最大1回）。一人称は【絶対に『モジ』】とし、語尾は【必ず『〜もじ』】にすること！『先生』や『親』などを名乗ることは【絶対に厳禁】。女の子なら『〜ちゃん』、男の子なら『〜くん』と呼ぶこと。is_rejectedがtrueの場合は、前半で楽しかった事実（例：サッカーしたこと）を肯定しつつ、後半で暴言部分に対して『モジ、胸がとっても苦しいもじ...悲しい気持ちになるもじ。次はもっと楽しいお話をしよ？』と優しく諭すメッセージにしてください。"
+                    description="子供へのメッセージ（100文字以内、3文以内）。一人称は必ず『モジ』、語尾は必ず『〜もじ』。女の子なら『〜ちゃん』、男の子なら『〜くん』と呼ぶこと。is_rejected=trueの場合は楽しかった事実を認めつつ暴言を優しく諭す内容、is_rejected=falseで雑談が混ざっている場合は、雑談に可愛く共感しつつ健全な頑張りを大絶賛する内容にしてください。"
                 )
             },
             required=["exp_gain", "new_memory", "is_rejected", "feedback"]
@@ -118,36 +117,32 @@ class GeminiManager:
                 st.session_state.messages = []
 
     def analyze_and_extract(self, user_prompt: str, student: StudentProfile, status: MojimojiStatus, memory: HierarchicalMemoryStore, is_diary: bool = False):
-        """ユーザーの発言を分析し、安全フィルターを適用して経験値を反映し、短期記憶に100%強制保存する関数"""
+        """ユーザーの発言を分析し、いじめは全無効、雑談は部分無視して健全な体験に点数を全集中させる関数"""
         current_date_str = datetime.datetime.now().strftime("%Y年%m月%d日")
         contents = f"【現在の会話日時】: {current_date_str}\n分析対象：{user_prompt}"
         
-        # 💡 プロンプト内でも主語と一人称のアイデンティティを徹底ガード
         char_identity_guard = (
             "【⚠️最優先キャラクター厳守】\n"
-            "あなたの人格はノートの隅のマスコット『MoJiMoJi（モジモジ）』です。学校の先生や親ではありません。\n"
-            "出力する『feedback』の文章では、一人称は必ず『モジ』、語尾は必ず『〜もじ』にしてください。『先生は〜』などと名乗るバグは絶対に起こさないでください。"
+            "あなたの人格はノートの隅のマスコット『MoJiMoJi（モジモジ）』です。親や先生、システム管理者を名乗るバグは絶対に起こさないでください。\n"
+            "出力する『feedback』では、一人称は必ず『モジ』、語尾は必ず『〜もじ』にしてください。"
         )
         
         if is_diary:
             exp_instruction = (
-                f"【🚨 日記の絶対ルール】\n"
-                f"1. 今回の入力は特別な『日記』です。不適切表現がない場合（is_rejected=false）、json内の『exp_gain』に含めるすべての『points』の合計値が、【必ずぴったり10ポイント】になるように分配してください。根拠を『reason』に正確に抽出してください。\n"
-                f"2. 同時に、日記の内容から『いつ、どこで、誰と、何をしたか』を正確に分析して『new_memory』に格納し、『is_important』を true にしてください。\n"
-                f"3. 【⚠️一括無効（ハイブリッド方式）ルール】\n"
-                f"   入力内容の中に、他者を傷つけるいじめ表現、暴言、悪口が【1文でも】含まれている場合、即座に『is_rejected』を true にし、経験値（exp_gain）をすべて0（空配列）にし、記憶（new_memory）のwhatも空文字にしてください。ただし、『いじめられている友達を助けた・庇った』という善行の場合は健全な行動として扱い、is_rejected=falseとして『社会性・徳育』を中心に大絶賛評価を割り振ってください。\n"
-                f"4. 子供のプロフィール：名前は『{student.name}』、学年は『{student.grade}』、性別は『{student.gender}』です。条件に応じた『feedback』を必ず作成してください。\n"
+                f"【🚨 日記の3レイヤー評価ルール】\n"
+                f"1. 【悪意の暴言・いじめ】他者を傷つける意図の言葉が【1文でも】あれば、問答無用で『is_rejected』を true にし、経験値をすべて0（空配列）、記憶も空にしてください。（※友達を助けた話は除く）\n"
+                f"2. 【日常の雑談・本音】悪意のない雑談や独り言（お腹すいた、眠いなど）が含まれる場合は、is_rejected=falseとした上で、その雑談部分のカテゴリを『無効・対象外』、pointsを 0 としてください。\n"
+                f"3. 【健全な体験への集中加算】雑談文が混ざっていても、同時にサッカーや勉強などの『健全な活動の文』が残りの2文にあれば、日記全体の合計10ポイントは減らさず、その健全な活動カテゴリのほうに【10点をすべて集中させて分配】してください。\n"
+                f"4. 子供の名前：『{student.name}』。頑張りを大絶賛しつつ雑談にも可愛く触れる『feedback』を必ず作成してください。\n"
                 f"{char_identity_guard}"
             )
         else:
             exp_instruction = (
-                f"【🚨 会話の絶対ルール】\n"
-                f"1. 今回の入力は『通常の会話』です。不適切表現がない場合、json内の『exp_gain』には最もふさわしいカテゴリを1つだけ選び、『points』は1として出力してください。根拠を『reason』に書いてください。\n"
-                f"2. 単なる挨拶や中身のない相槌、意味のない文字列の場合は、カテゴリを『無効・対象外』とし、pointsを 0 にしてください。\n"
-                f"3. 会話の中から、子供が話してくれた具体的な出来事を分析し、日記の材料になり得る行動・体験である場合は、『new_memory』を抽出して『is_important』を true にしてください。\n"
-                f"4. 【⚠️一括無効（ハイブリッド方式）ルール】\n"
-                f"   発言の中に、他者を傷つけるいじめ、暴言、悪口が【1文でも】含まれている場合、即座に『is_rejected』を true にし、経験値のpointsをすべて0にし、記憶のwhatを空文字にしてください。ただし、『いじめられている友達を助けた』という善行の場合は、勇気ある行動としてカテゴリを『社会性・徳育』、pointsを1、is_rejected=falseにしてください。\n"
-                f"5. 子供のプロフィール：名前は『{student.name}』、学年は『{student.grade}』、性別は『{student.gender}』です。条件に応じた『feedback』を必ず作成してください。\n"
+                f"【🚨 会話の3レイヤー評価ルール】\n"
+                f"1. 【悪意の暴言・いじめ】他者を傷つける悪口が【1文でも】あれば即座に『is_rejected』を true にし、pointsをすべて 0 にしてください。\n"
+                f"2. 【日常の雑談・本音】「お腹すいた」「眠いな」「うん」などの雑談のみ、または混ざっている場合は、is_rejected=falseとした上で、その雑談フレーズのカテゴリを『無効・対象外』、pointsを 0 としてください。\n"
+                f"3. 会話内に別の健全な活動・体験のフレーズ（サッカーした、宿題したなど）が1つでも含まれていれば、通常会話の1ポイントはそちらの健全カテゴリへ優先して【100%集中加算】し、記憶（new_memory）もそちらから正確に抽出してください。\n"
+                f"4. 子供の名前：『{student.name}』。条件に応じた『feedback』を必ず作成してください。\n"
                 f"{char_identity_guard}"
             )
         
@@ -174,9 +169,16 @@ class GeminiManager:
             if not is_rejected:
                 for item in data.get("exp_gain", []):
                     cat = item.get("category")
-                    if cat == "無効・対象外":
-                        continue
                     raw_points = item.get("points", 0)
+                    reason_text = item.get("reason", "") 
+                    
+                    # 💡 【日常雑談の部分スルー処理】
+                    # 「無効・対象外」カテゴリ（雑談フレーズ）だった場合は、ステータスEXPの加算処理だけを綺麗にスキップします。
+                    # ただし、ダッシュボードのタイムラインには「スルーされた理由」として可視化するため、0点データとして履歴配列にだけは追加します。
+                    if cat == "無効・対象外" or raw_points == 0:
+                        gained_list.append({"category": "無効・対象外", "points": 0, "reason": reason_text})
+                        continue
+                        
                     exp = raw_points if is_diary else 1
                     
                     if exp > 0:
@@ -184,7 +186,7 @@ class GeminiManager:
                             if cat == status_key or cat in status_key or status_key in cat:
                                 if status.add_exp(status_key, exp):
                                     leveled_up_final = True
-                                gained_list.append({"category": status_key, "points": exp, "reason": item.get("reason", "")})
+                                gained_list.append({"category": status_key, "points": exp, "reason": reason_text})
                                 break
                 
                 mem_data = data.get("new_memory", {})
