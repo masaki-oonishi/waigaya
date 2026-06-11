@@ -258,13 +258,6 @@ def main():
         with c_btn3:
             if st.button("🏅 隠れ実績図鑑をみる", use_container_width=True, type="primary"):
                 st.session_state.screen = "achievements"; st.rerun()
-                
-        st.markdown("<div style='margin-bottom: 15px;'></div>", unsafe_allow_html=True)
-        col_foot = st.columns(1)
-
-        with col_foot[0]:
-            if st.button("📊 分類ダッシュボード", use_container_width=True):
-                st.session_state.screen = "dashboard"; st.rerun()
 
     # 📖 【日記ルート】入力画面
     elif st.session_state.screen == "diary":
@@ -288,12 +281,15 @@ def main():
                 st.session_state.screen = "room"; st.rerun()
         else:
             st.markdown("### ✍️ 今日の日記をノートに書こう")
-            diary_input = st.text_area("今日あった嬉しかったことや、がんばったことを教えてね！", placeholder="例：あさちゃんと一緒に校庭でサッカーをしたよ！", height=120)
+            diary_input = st.text_area("今日あった嬉しかったことや、がんばったことを教えてね！", placeholder="例：あさちゃんといっしょに校庭でサッカーをしたよ！", height=120)
             
             if st.button("🚀 日記をノートに保存する", use_container_width=True):
                 if diary_input.strip():
                     old_mem_count = len(memory.short_term_memories)
-                    gained, lvup, is_rejected, fb, toasts = ai_manager.analyze_and_extract(diary_input, student, status, memory, is_diary=True)
+                    
+                    # 💡 【今回の大改善】日記のデータ分析中も、会話と同じくスピナーのぐるぐるを発生させます！
+                    with st.spinner("MoJiMoJiが日記を読んでいるもじ..."):
+                        gained, lvup, is_rejected, fb, toasts = ai_manager.analyze_and_extract(diary_input, student, status, memory, is_diary=True)
                     
                     st.session_state.last_gained_exp = gained
                     st.session_state.diary_feedback = fb
@@ -380,7 +376,10 @@ def main():
                 if lvup: st.session_state.show_lvup_effect = True 
                 if toasts: st.session_state.toast_queue += toasts 
                 
-                response_text = fb if is_rejected else ai_manager.generate_response(st.session_state.messages, student, status, memory)
+                if is_rejected:
+                    response_text = fb
+                else:
+                    response_text = ai_manager.generate_response(st.session_state.messages, student, status, memory)
             
             new_mem = memory.short_term_memories[-1]["what"] if len(memory.short_term_memories) > old_mem_count else "なし"
             memory.classification_history.append({
@@ -424,7 +423,6 @@ def main():
                 status_html = f"<span style='font-size:11px; color:#228B22; font-weight:bold;'>✨達成日: {user_data['unlocked_at']}</span>"
             else:
                 img_style = "width: 65px; height: 65px; object-fit: contain; filter: brightness(70%) saturate(80%); opacity: 0.5;"
-                # 💡【今回の大改善】未達成時の鍵マークを「🔓 (開いている)」から「🔒 (閉じている)」に完全施錠しました！
                 title_html = f"<span style='font-size:16px; font-weight:bold; color:#777;'>🔒 {master['title']}</span>"
                 detail_html = f"<span style='font-size:13px; color:#888; font-style:italic;'>ヒント: {master['hint']}</span>"
                 
