@@ -1,140 +1,18 @@
 # app.py
 import streamlit as st
 import datetime
-import json
-import urllib.parse  
 from streamlit_lottie import st_lottie
 from models import StudentProfile, MojimojiStatus, HierarchicalMemoryStore
 from services import GeminiManager, ACHIEVEMENT_MASTER
-import base64
-from pathlib import Path
 
-def load_lottie_file(filepath: str):
-    """ローカルのLottie（JSON）ファイルを安全に読み込む関数"""
-    try:
-        with open(filepath, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except:
-        return None
-
-def get_image_as_base64(path):
-    """指定されたメダル画像を読み込み、HTMLに直埋めできるbase64文字列に変換する"""
-    if Path(path).is_file():
-        with open(path, "rb") as f:
-            data = f.read()
-        return base64.b64encode(data).decode()
-    return None
-
-def render_mojimoji_with_overlay(character_data, effect_data=None, height=200, key=""):
-    """ベースがLottie JSONでもBase64静止画でも、真上にエフェクトLottieを完全シンクロで重ねる関数"""
-    if not character_data:
-        return
-
-    is_image = isinstance(character_data, str)
-    char_json_str = "null" if is_image else json.dumps(character_data)
-    effect_json_str = json.dumps(effect_data) if effect_data else "null"
-
-    if is_image:
-        char_html = f'<img src="data:image/png;base64,{character_data}" style="position: absolute; width: 100%; height: 100%; object-fit: contain; z-index: 1;">'
-    else:
-        char_html = f'<div id="lottie-char-{key}" style="position: absolute; width: 100%; height: 100%; z-index: 1;"></div>'
-
-    html_code = f"""
-    <style>html, body {{ margin: 0; padding: 0; overflow: hidden; background: transparent; height: 100%; }}</style>
-    <div style="position: relative; width: 100%; height: {height}px; display: flex; justify-content: center; align-items: center; overflow: hidden; background: transparent;">
-        {char_html}
-        <div id="lottie-effect-{key}" style="position: absolute; width: 100%; height: 100%; z-index: 2; pointer-events: none;"></div>
-    </div>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/lottie-web/5.12.2/lottie.min.js"></script>
-    <script>
-        var charData = {char_json_str};
-        if (charData) {{
-            lottie.loadAnimation({{ container: document.getElementById('lottie-char-{key}'), renderer: 'svg', loop: true, autoplay: true, animationData: charData }});
-        }}
-        var effectData = {effect_json_str};
-        if (effectData) {{ 
-            lottie.loadAnimation({{ container: document.getElementById('lottie-effect-{key}'), renderer: 'svg', loop: false, autoplay: true, animationData: effectData }}); 
-        }}
-    </script>
-    """
-    data_url = f"data:text/html;charset=utf-8,{urllib.parse.quote(html_code)}"
-    st.iframe(src=data_url, height=height)
-
-def render_line_message(role: str, content: str, student_name: str, level: int):
-    """メッセージをLINE公式そっくりの吹き出しHTMLにレンダリングする関数"""
-    content_html = content.replace("\n", "<br>")
-    if role == "user":
-        html = f"""
-        <div style="display: flex; justify-content: flex-end; margin-bottom: 15px; width: 100%;">
-            <div style="display: flex; flex-direction: column; align-items: flex-end; max-width: 75%;">
-                <div style="font-size: 10px; color: #888888; margin-bottom: 2px; margin-right: 5px;">{student_name}</div>
-                <div style="background-color: #9EEA6A; color: #000000; padding: 8px 12px; border-radius: 12px; border-top-right-radius: 2px; font-size: 14px; box-shadow: 0px 1px 2px rgba(0,0,0,0.15);">{content_html}</div>
-            </div>
-        </div>
-        """
-    else:
-        avatar_path = "resource/bird.png" if level >= 10 else "resource/egg.png"
-        img_base64 = get_image_as_base64(avatar_path)
-        
-        if img_base64:
-            avatar_content = f'<img src="data:image/png;base64,{img_base64}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">'
-        else:
-            avatar_content = "🐦" if level >= 10 else "🥚"
-            
-        html = f"""
-        <div style="display: flex; justify-content: flex-start; margin-bottom: 15px; width: 100%;">
-            <div style="background: transparent; width:35px; height:35px; border-radius:50%; margin-right: 8px; margin-top: 5px; overflow:hidden; display:flex; align-items:center; justify-content:center;">{avatar_content}</div>
-            <div style="display: flex; flex-direction: column; align-items: flex-start; max-width: 75%;">
-                <div style="font-size: 10px; color: #888888; margin-bottom: 2px; margin-left: 5px;">MoJiMoJi (Lv.{level})</div>
-                <div style="background-color: #FFFFFF; padding: 8px 12px; border-radius: 12px; border-top-left-radius: 2px; font-size: 14px; box-shadow: 0px 1px 2px rgba(0,0,0,0.15); color: #000000;">{content_html}</div>
-            </div>
-        </div>
-        """
-    st.markdown(html, unsafe_allow_html=True)
-
-def show_achievement_toast(titles: list):
-    """画面右上から左へスライドインして飛び出す実績解除トースト通知"""
-    if not titles:
-        return
-    for i, title in enumerate(titles):
-        medal_color = "cupper" 
-        for ach_id, master in ACHIEVEMENT_MASTER.items():
-            if master["title"] == title:
-                medal_color = master["medal_color"]
-                break
-                
-        img_path = f"resource/{medal_color}.png"
-        img_base64 = get_image_as_base64(img_path)
-        
-        if img_base64:
-            icon_html = f'<img src="data:image/png;base64,{img_base64}" style="width: 45px; height: 45px; object-fit: contain;">'
-        else:
-            icon_html = '<div style="font-size: 24px;">🏆</div>' 
-
-        toast_html = f"""
-        <div id="ach-toast-{i}" style="
-            position: fixed; top: {70 + (i * 80)}px; right: 20px; width: 290px; 
-            background: linear-gradient(135deg, #FFF7E6 0%, #FFF 100%);
-            border-left: 6px solid #FFD700; border-radius: 8px; padding: 12px;
-            box-shadow: 0px 4px 15px rgba(0,0,0,0.2); z-index: 99999;
-            display: flex; align-items: center; gap: 12px; color: #333;
-            animation: slideInRight 0.5s ease-out forwards, fadeOut 0.5s ease-in 4.5s forwards;
-        ">
-            <div style="flex-shrink: 0; display: flex; align-items: center; justify-content: center; width: 45px;">
-                {icon_html}
-            </div>
-            <div>
-                <div style="font-size: 11px; color: #FF8C00; font-weight: bold; margin-bottom: 2px;">★ 隠れ実績を解除したもじ！</div>
-                <div style="font-size: 13px; font-weight: bold;">{title}</div>
-            </div>
-        </div>
-        <style>
-        @keyframes slideInRight {{ 0% {{ transform: translateX(350px); opacity: 0; }} 100% {{ transform: translateX(0); opacity: 1; }} }}
-        @keyframes fadeOut {{ 0% {{ opacity: 1; }} 100% {{ opacity: 0; transform: translateY(-20px); }} }}
-        </style>
-        """
-        st.markdown(toast_html, unsafe_allow_html=True)
-
+# 🎨 リファクタリング：UI系ヘルパー関数を別ファイルからインポート
+from ui_components import (
+    load_lottie_file,
+    get_image_as_base64,
+    render_mojimoji_with_overlay,
+    render_line_message,
+    show_achievement_toast
+)
 
 def main():
     if "messages" not in st.session_state: st.session_state.messages = []
@@ -146,7 +24,7 @@ def main():
     if "show_lvup_effect" not in st.session_state: st.session_state.show_lvup_effect = False 
     if "toast_queue" not in st.session_state: st.session_state.toast_queue = []
     
-    # 💡 【新設】残像バグを根絶するための、AI思考状態管理フラグ
+    if "has_seen_evolution" not in st.session_state: st.session_state.has_seen_evolution = False
     if "ai_thinking" not in st.session_state: st.session_state.ai_thinking = False
 
     student = st.session_state.student
@@ -158,7 +36,6 @@ def main():
         show_achievement_toast(st.session_state.toast_queue)
         st.session_state.toast_queue = [] 
 
-    # Lottieファイルのロード
     l_egg = load_lottie_file("resource/egg.json")
     l_letter = load_lottie_file("resource/letter.json")
     l_lvup = load_lottie_file("resource/level_up.json")
@@ -167,7 +44,6 @@ def main():
 
     active_effect = l_lvup if st.session_state.show_lvup_effect else None
 
-    # レベルに応じたアセット切り替え
     if status.level < 5:
         current_graphic = l_egg
     elif status.level < 10:
@@ -318,7 +194,7 @@ def main():
 
     # 📖 【日記ルート】入力画面
     elif st.session_state.screen == "diary":
-        st.subheader("📖 日記")
+        st.subheader("📖 記憶と日記のノート")
         st.markdown("<div style='margin-bottom: 10px;'></div>", unsafe_allow_html=True)
         
         col_d_top1, col_d_top2, col_d_top3 = st.columns([3, 4, 3])
@@ -371,7 +247,7 @@ def main():
 
     # 💌 【日記ルート】演出画面
     elif st.session_state.screen == "diary_animation":
-        st.subheader("📖 日記")
+        st.subheader("📖 記憶と日記のノート")
         st.markdown("<div style='margin-bottom: 10px;'></div>", unsafe_allow_html=True)
         
         col_da_top1, col_da_top2, col_da_top3 = st.columns([3, 4, 3])
@@ -426,24 +302,33 @@ def main():
             
         st.markdown("<hr style='margin-top: 15px; margin-bottom: 15px;'>", unsafe_allow_html=True)
 
-        # 💡 【大改造の核心：一本道描画化】
-        # 過去の会話履歴をすべてここで矛盾なく綺麗にループ描画します。
-        for message in st.session_state.messages:
-            render_line_message(message["role"], message["content"], student.name, status.level)
+        chat_container = st.container()
+        with chat_container:
+            for message in st.session_state.messages:
+                render_line_message(message["role"], message["content"], student.name, status.level)
 
-        # 💡 【大改造の核心：ステート駆動型AIおしゃべり通信】
-        # ユーザーの入力後に再レンダリングされ、ここで初めてスピナーを回して裏でGeminiを安全に叩きます。
+        # 💡 【1回通信統合版 AI呼び出し処理】
         if st.session_state.ai_thinking:
             with st.spinner("MoJiMoJiが考えています..."):
                 latest_prompt = st.session_state.messages[-1]["content"]
-                gained, lvup, is_rejected, fb, toasts = ai_manager.analyze_and_extract(latest_prompt, student, status, memory, is_diary=False)
+                
+                # チャット履歴付きで analyze_and_extract を1回だけ呼び出す
+                gained, lvup, is_rejected, fb, toasts = ai_manager.analyze_and_extract(
+                    user_prompt=latest_prompt, 
+                    student=student, 
+                    status=status, 
+                    memory=memory, 
+                    is_diary=False, 
+                    chat_history=st.session_state.messages # 今までの履歴を送信
+                )
+                
                 if lvup: st.session_state.show_lvup_effect = True 
                 if toasts: st.session_state.toast_queue += toasts 
                 
-                if is_rejected:
-                    response_text = fb
-                else:
-                    response_text = ai_manager.generate_response(st.session_state.messages, student, status, memory)
+                response_text = fb
+                
+                # 💡【フォールバック時はHPを減らさない優しさ】
+                if not is_rejected and "ごめんもじ" not in response_text:
                     status.current_hp = max(0, status.current_hp - 10)
             
             old_mem_count = len(memory.short_term_memories)
@@ -452,16 +337,16 @@ def main():
                 "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "type": "💬 会話", "text": latest_prompt,
                 "gained": gained, "extracted_memory": new_mem if not is_rejected else "（保存なし）", "is_rejected": is_rejected
             })
+            
             st.session_state.messages.append({"role": "assistant", "content": response_text})
             st.session_state.ai_thinking = False
-            st.rerun() # AIの吹き出しを確定させて画面を一本道で再更新！
+            st.rerun()
 
-        if status.current_hp <= 0:
-            st.warning("💤 モジは つかれて 眠ってしまったもじ。また明日、たくさんおはなししようね！")
+        if status.current_hp <= 0 and not st.session_state.ai_thinking:
+            st.warning("💤 モジは つかれて 眠ってしまったもじ！また明日、たくさんおはなししようね！")
             if st.button("🏠 お部屋に戻っておやすみさせてあげる", use_container_width=True, type="primary"):
                 st.session_state.screen = "room"; st.rerun()
-        else:
-            # 💡 入力された瞬間に、履歴への追加と「考え中フラグ」を立てるだけにして即座にrerunさせます
+        elif not st.session_state.ai_thinking:
             if prompt := st.chat_input("ここにメッセージを入力..."):
                 st.session_state.messages.append({"role": "user", "content": prompt})
                 st.session_state.ai_thinking = True
