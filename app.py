@@ -5,7 +5,7 @@ from streamlit_lottie import st_lottie
 from models import StudentProfile, MojimojiStatus, HierarchicalMemoryStore
 from services import GeminiManager, ACHIEVEMENT_MASTER
 
-# 🎨 リファクタリング：UI系ヘルパー関数を別ファイルからインポート
+# 🎨 UI系ヘルパー関数を別ファイルからインポート
 from ui_components import (
     load_lottie_file,
     get_image_as_base64,
@@ -23,9 +23,10 @@ def main():
     if "screen" not in st.session_state: st.session_state.screen = "room"
     if "show_lvup_effect" not in st.session_state: st.session_state.show_lvup_effect = False 
     if "toast_queue" not in st.session_state: st.session_state.toast_queue = []
+
+    if "ai_thinking" not in st.session_state: st.session_state.ai_thinking = False
     
     if "has_seen_evolution" not in st.session_state: st.session_state.has_seen_evolution = False
-    if "ai_thinking" not in st.session_state: st.session_state.ai_thinking = False
 
     student = st.session_state.student
     status = st.session_state.status
@@ -302,24 +303,26 @@ def main():
             
         st.markdown("<hr style='margin-top: 15px; margin-bottom: 15px;'>", unsafe_allow_html=True)
 
-        chat_container = st.container()
-        with chat_container:
-            for message in st.session_state.messages:
-                render_line_message(message["role"], message["content"], student.name, status.level)
+        # 💡 過去の会話履歴をすべて矛盾なく綺麗に描画
+        for message in st.session_state.messages:
+            render_line_message(message["role"], message["content"], student.name, status.level)
 
-        # 💡 【1回通信統合版 AI呼び出し処理】
+        # 💡 ステート駆動型AIおしゃべり通信（ユーザー入力後の再レンダリングで確実にトリガー）
         if st.session_state.ai_thinking:
+            # 🛠️ 修正の核心：通信が走る【直前】のタイミングで、現在の短期記憶数を正確に退避！
+            old_mem_count = len(memory.short_term_memories)
+            
             with st.spinner("MoJiMoJiが考えています..."):
                 latest_prompt = st.session_state.messages[-1]["content"]
                 
-                # チャット履歴付きで analyze_and_extract を1回だけ呼び出す
+                # 🎯 「通信1回統合」仕様を完全維持し、チャット履歴コンテキストを乗せて安全に抽出
                 gained, lvup, is_rejected, fb, toasts = ai_manager.analyze_and_extract(
                     user_prompt=latest_prompt, 
                     student=student, 
                     status=status, 
                     memory=memory, 
                     is_diary=False, 
-                    chat_history=st.session_state.messages # 今までの履歴を送信
+                    chat_history=st.session_state.messages
                 )
                 
                 if lvup: st.session_state.show_lvup_effect = True 
@@ -327,26 +330,34 @@ def main():
                 
                 response_text = fb
                 
-                # 💡【フォールバック時はHPを減らさない優しさ】
+                # 安全フィルター未発動、かつ通常応答時のみHPをマイナス10する仕様を維持
                 if not is_rejected and "ごめんもじ" not in response_text:
                     status.current_hp = max(0, status.current_hp - 10)
             
-            old_mem_count = len(memory.short_term_memories)
+            # 🛠️ 退避しておいたカウントと比較し、会話から生まれた構造化記憶をダッシュボードへ100%追加
             new_mem = memory.short_term_memories[-1]["what"] if len(memory.short_term_memories) > old_mem_count else "なし"
             memory.classification_history.append({
-                "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "type": "💬 会話", "text": latest_prompt,
-                "gained": gained, "extracted_memory": new_mem if not is_rejected else "（保存なし）", "is_rejected": is_rejected
+                "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), 
+                "type": "💬 会話", 
+                "text": latest_prompt,
+                "gained": gained, 
+                "extracted_memory": new_mem if not is_rejected else "（保存なし）", 
+                "is_rejected": is_rejected
             })
             
+            # 応答を格納し、フラグを下げてから、一本道レンダリングを確定させるために最終リラン！
             st.session_state.messages.append({"role": "assistant", "content": response_text})
             st.session_state.ai_thinking = False
             st.rerun()
 
-        if status.current_hp <= 0 and not st.session_state.ai_thinking:
+        # 入力欄・受付フェーズ
+        if status.current_hp <= 0:
             st.warning("💤 モジは つかれて 眠ってしまったもじ！また明日、たくさんおはなししようね！")
             if st.button("🏠 お部屋に戻っておやすみさせてあげる", use_container_width=True, type="primary"):
                 st.session_state.screen = "room"; st.rerun()
-        elif not st.session_state.ai_thinking:
+        else:
+            # 💡 メッセージが入力された瞬間は、 Stateへの追加とフラグ立てのみで即時リラン。
+            # これにより、スピナーが回る前に「ユーザーの最新発言」が画面の正規DOMとして確実に固定されます！
             if prompt := st.chat_input("ここにメッセージを入力..."):
                 st.session_state.messages.append({"role": "user", "content": prompt})
                 st.session_state.ai_thinking = True
